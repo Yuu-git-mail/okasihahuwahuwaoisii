@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>お菓子栄養計算ツール（改良版）</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    .result {
+      margin-top: 20px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 10px;
+    }
+    table,
+    th,
+    td {
+      border: 1px solid #ddd;
+    }
+    th,
+    td {
+      text-align: center;
+      padding: 8px;
+    }
+    select,
+    input {
+      margin: 5px;
+    }
+    .ingredient-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .ingredient-row label {
+      margin-right: 10px;
+    }
+    .ingredient-row button {
+      margin-left: 15px;
+    }
+    .flex-container {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .flex-container div {
+      min-width: 200px;
+    }
+    .ingredient-selects {
+      display: flex;
+      flex-direction: row;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>お菓子栄養計算ツール（改良版）</h1>
+
+  <form id="ingredient-form">
+    <div id="ingredients">
+      <!-- 初期行（クローンして使う） -->
+      <div class="ingredient-row">
+        <!-- ▼ 2つのプルダウンを用意（基本材料 / よく使う材料） -->
+        <div class="ingredient-selects">
+          <label>基本材料:
+            <select class="ingredient-basic">
+              <option value="none">なし</option>
+              <option value="砂糖">砂糖</option>
+              <option value="小麦粉">小麦粉</option>
+              <option value="塩">塩</option>
+              <option value="牛乳">牛乳</option>
+              <option value="卵">卵</option>
+            </select>
+          </label>
+
+          <label>よく使われる材料:
+            <select class="ingredient-common">
+              <option value="none">なし</option>
+              <option value="無塩バター">無塩バター</option>
+              <option value="有塩バター">有塩バター</option>
+              <option value="グラニュー糖">グラニュー糖</option>
+              <option value="ベーキングパウダー">ベーキングパウダー</option>
+              <option value="卵黄">卵黄</option>
+              <option value="アーモンド">アーモンド</option>
+              <option value="アーモンド粉末">アーモンド粉末</option>
+              <option value="脱脂粉乳">脱脂粉乳</option>
+            </select>
+          </label>
+        </div>
+        <label>量 (g):
+          <input type="number" class="ingredient-amount" placeholder="例: 50" />
+        </label>
+        <button type="button" onclick="removeIngredient(this)">削除</button>
+      </div>
+    </div>
+    
+    <button type="button" onclick="addIngredient()">＋材料を追加</button>
+    <button type="button" onclick="resetAll()">リセット</button>
+    <br /><br />
+
+    <label>作る個数:
+      <input type="number" id="item-count" placeholder="例: 10" />
+    </label>
+    <br />
+    <label>表示切り替え:
+      <select id="display-mode">
+        <option value="perItem">1個あたり</option>
+        <option value="per100g">100gあたり</option>
+      </select>
+    </label>
+    <br /><br />
+
+    <button type="button" onclick="calculate()">計算</button>
+  </form>
+
+  <div class="result" id="result"></div>
+
+  <script>
+    // ▼ 栄養データベース (100gあたり)
+    const nutritionData = {
+      "砂糖": { cal: 387, carb: 100, protein: 0,   fat: 0,   fiber: 0 },
+      "小麦粉": { cal: 364, carb: 76.3, protein: 10,  fat: 1,   fiber: 2.7 },
+      "塩":   { cal: 0,   carb: 0,    protein: 0,   fat: 0,   fiber: 0 },
+      "牛乳": { cal: 64,  carb: 4.8,  protein: 3.3, fat: 3.6, fiber: 0 },
+      "卵":   { cal: 151, carb: 0.2,  protein: 12.3,fat: 10.3, fiber: 0 },
+
+      "無塩バター": { cal: 717, carb: 0, protein: 0.9, fat: 81, fiber: 0 },
+      "有塩バター": { cal: 717, carb: 0, protein: 0.8, fat: 81, fiber: 0 },
+      "グラニュー糖": { cal: 400, carb: 100, protein: 0,  fat: 0,   fiber: 0 },
+      "ベーキングパウダー": { cal: 53,  carb: 27.1, protein: 0, fat: 0, fiber: 0 },
+      "卵黄": { cal: 322, carb: 0.6,  protein: 15.9,fat: 26.5, fiber: 0 },
+      "アーモンド": { cal: 579, carb: 21.6, protein: 21.2,fat: 49.9,fiber:12.5},
+      "アーモンド粉末": { cal:572, carb:19.5, protein:21.4, fat: 50, fiber:10.7},
+      "脱脂粉乳": { cal: 358, carb: 52.2, protein:35.7,fat: 0.8, fiber: 0 }
+    };
+
+    // ▼ 材料行を追加
+    function addIngredient() {
+      const container = document.getElementById("ingredients");
+      // 先頭の行をコピー
+      const newRow = container.firstElementChild.cloneNode(true);
+
+      // 中身を初期化
+      newRow.querySelector(".ingredient-basic").value = "none";
+      newRow.querySelector(".ingredient-common").value = "none";
+      newRow.querySelector(".ingredient-amount").value = "";
+
+      container.appendChild(newRow);
+    }
+
+    // ▼ 材料行を削除
+    function removeIngredient(button) {
+      // ただし、行が1つしかなければ削除しないようにする
+      const container = document.getElementById("ingredients");
+      if (container.children.length === 1) {
+        alert("これ以上削除できません。");
+        return;
+      }
+      const row = button.closest(".ingredient-row");
+      row.remove();
+    }
+
+    // ▼ すべての材料をリセット
+    function resetAll() {
+      const container = document.getElementById("ingredients");
+      // 最初の行だけ残して、あとは全削除
+      const firstRow = container.firstElementChild;
+      container.innerHTML = "";
+      container.appendChild(firstRow);
+
+      // 行を初期状態に戻す
+      firstRow.querySelector(".ingredient-basic").value = "none";
+      firstRow.querySelector(".ingredient-common").value = "none";
+      firstRow.querySelector(".ingredient-amount").value = "";
+
+      // 他の入力要素の初期化
+      document.getElementById("item-count").value = "";
+      document.getElementById("display-mode").value = "perItem";
+      document.getElementById("result").innerHTML = "";
+    }
+
+    // ▼ 計算実行
+    function calculate() {
+      const container = document.getElementById("ingredients");
+      const rows = container.querySelectorAll(".ingredient-row");
+
+      const itemCount = parseFloat(document.getElementById("item-count").value);
+      const displayMode = document.getElementById("display-mode").value;
+
+      if (!itemCount || itemCount <= 0) {
+        alert("作る個数を正しく入力してください。");
+        return;
+      }
+
+      let totalWeight = 0;
+      let totalCal = 0;
+      let totalCarb = 0;
+      let totalProtein = 0;
+      let totalFat = 0;
+      let totalFiber = 0;
+
+      // ▼ 1行ずつ材料データを集計
+      rows.forEach(row => {
+        // 基本材料 or よく使われる材料 どちらを選んだかを判定
+        const basic = row.querySelector(".ingredient-basic").value;
+        const common = row.querySelector(".ingredient-common").value;
+        const amount = parseFloat(row.querySelector(".ingredient-amount").value);
+
+        // どちらも "none" の場合はスキップ
+        if (basic === "none" && common === "none") {
+          return;
+        }
+        // どちらか選ばれている方を使う
+        const ingredientName = (basic !== "none") ? basic : common;
+
+        if (!nutritionData[ingredientName]) {
+          alert(`材料「${ingredientName}」はデータにありません。`);
+          return;
+        }
+        if (!amount || amount <= 0) {
+          alert(`材料「${ingredientName}」のグラム数を正しく入力してください。`);
+          return;
+        }
+
+        const { cal, carb, protein, fat, fiber } = nutritionData[ingredientName];
+
+        totalWeight += amount;
+        totalCal += (cal * amount) / 100;
+        totalCarb += (carb * amount) / 100;
+        totalProtein += (protein * amount) / 100;
+        totalFat += (fat * amount) / 100;
+        totalFiber += (fiber * amount) / 100;
+      });
+
+      // ▼ 表示用HTMLを作成
+      let resultHTML = "<h2>結果</h2>";
+      resultHTML += `
+        <table>
+          <tr>
+            <th>項目</th>
+            <th>総量</th>
+      `;
+      if (displayMode === "perItem") {
+        resultHTML += "<th>1個あたり</th>";
+      } else {
+        resultHTML += "<th>100gあたり</th>";
+      }
+      resultHTML += "</tr>";
+
+      // 1個あたり or 100gあたりの計算係数
+      const perWeightFactor =
+        displayMode === "perItem" ? itemCount : totalWeight / 100;
+
+      // ▼ 総グラム数の表示行を追加
+      resultHTML += `<tr>
+        <td>原材料の総グラム</td>
+        <td>${totalWeight.toFixed(2)} g</td>
+        <td> - </td>
+      </tr>`;
+
+      // ▼ 各栄養素の行
+      resultHTML += `<tr>
+        <td>カロリー (kcal)</td>
+        <td>${totalCal.toFixed(2)}</td>
+        <td>${(totalCal / perWeightFactor).toFixed(2)}</td>
+      </tr>`;
+      resultHTML += `<tr>
+        <td>炭水化物 (g)</td>
+        <td>${totalCarb.toFixed(2)}</td>
+        <td>${(totalCarb / perWeightFactor).toFixed(2)}</td>
+      </tr>`;
+      resultHTML += `<tr>
+        <td>タンパク質 (g)</td>
+        <td>${totalProtein.toFixed(2)}</td>
+        <td>${(totalProtein / perWeightFactor).toFixed(2)}</td>
+      </tr>`;
+      resultHTML += `<tr>
+        <td>脂質 (g)</td>
+        <td>${totalFat.toFixed(2)}</td>
+        <td>${(totalFat / perWeightFactor).toFixed(2)}</td>
+      </tr>`;
+      resultHTML += `<tr>
+        <td>食物繊維 (g)</td>
+        <td>${totalFiber.toFixed(2)}</td>
+        <td>${(totalFiber / perWeightFactor).toFixed(2)}</td>
+      </tr>`;
+
+      resultHTML += "</table>";
+
+      document.getElementById("result").innerHTML = resultHTML;
+    }
+  </script>
+</body>
+</html>
